@@ -1,7 +1,18 @@
 #!/usr/bin/python3
 # Coded by anomobb
+# Edited by Bronx Anarchy ( Add Compress Adress and Multiprocessing )
 
-import hashlib, random, os, binascii, ecdsa, base58, datetime, hmac, multiprocessing, pyperclip, PySimpleGUI as sg
+import hashlib
+import pyperclip
+import PySimpleGUI as sg
+import random
+import multiprocessing
+from multiprocessing import Process, Queue
+from multiprocessing.pool import ThreadPool
+import datetime
+import bitcoin
+
+
 
 
 print('Starting up...')
@@ -12,10 +23,8 @@ layout =  [
             [sg.Text('This program has been running for... ', size=(30,1), font=('Comic sans ms', 10)),sg.Text('', size=(30,1), font=('Comic sans ms', 10), key='_DATE_')],
             [sg.Image('sco.png', size=(225, 225))],
             [sg.Text('Address: ', size=(9,1), font=('Comic sans ms', 14)), sg.Text('', size=(120,1), font=('Comic sans ms', 14),  key='address')],
-            [sg.Text('Publickey: ', size=(9,1), font=('Comic sans ms', 14)), sg.Text('', size=(150,1), font=('Comic sans ms', 14), key= 'publickey')],
-            [sg.Text('Privatekey: ', size=(9,1), font=('Comic sans ms', 14)), sg.Text('', size=(120,1), font=('Comic sans ms', 14), key= 'privatekey')],
-            [sg.Text('WIF: ', size=(9,1), font=('Comic sans ms', 14)), sg.Text('', size=(120,1), font=('Comic sans ms', 14), key= 'wif')],
-            [sg.Text('If balance: ',size=(9,1), font=('Comic sans ms', 14)), sg.Text('',size=(8,1), font=('Comic sans ms', 14), key='found')],
+            [sg.Text('CAddress: ', size=(9,1), font=('Comic sans ms', 14)), sg.Text('', size=(120,1), font=('Comic sans ms', 14),  key='addressc')],
+            [sg.Text('Privatekey: ', size=(9,1), font=('Comic sans ms', 14)), sg.Text('', size=(120,1), font=('Comic sans ms', 14), key= 'private_key')],
             [sg.Button('Exit', button_color=('white', 'red'))]
           ]
 
@@ -26,65 +35,71 @@ window = sg.Window('Bitbruter',
                    )
 
 start_time = datetime.datetime.now()
+#private_key = random.randrange(0,115792089237316195423570985008687907852837564279074904382605163141518161494337)
+def generate_private_key():
+    private_key = random.randrange(0,4)
+    return private_key
 
-def secret():
-    return binascii.hexlify(os.urandom(32)).decode('utf-8').upper()
+def pubkey(private_key):
+    pubkey = bitcoin.fast_multiply(bitcoin.G, private_key)
+    return pubkey
 
-def pubkey(secret_exponent):
-    privatekey = binascii.unhexlify(secret_exponent)
-    s = ecdsa.SigningKey.from_string(privatekey, curve = ecdsa.SECP256k1)
-    return '04' + binascii.hexlify(s.verifying_key.to_string()).decode('utf-8')
+def pubkeyc(private_key):
+    pubkey = bitcoin.fast_multiply(bitcoin.G, private_key)
+    (pubkey_x, pubkey_y) = pubkey
+    if pubkey_y % 2 == 0:
+        compressed_prefix = '02'
+    else:
+        compressed_prefix = '03'
+    hexo = compressed_prefix + bitcoin.encode(pubkey_x, 16)
+    pubkeyc = hexo.encode('utf-8')
+    return pubkeyc   
 
-def addr(public_key):
-    output = []; alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-    var = hashlib.new('ripemd160')
-    var.update(hashlib.sha256(binascii.unhexlify(public_key.encode())).digest())
-    var = '00' + var.hexdigest() + hashlib.sha256(hashlib.sha256(binascii.unhexlify(('00' + var.hexdigest()).encode())).digest()).hexdigest()[0:8]
-    count = [char != '0' for char in var].index(True) // 2
-    n = int(var, 16)
-    while n > 0:
-        n, remainder = divmod(n, 58)
-        output.append(alphabet[remainder])
-    for i in range(count): output.append(alphabet[0])
-    return ''.join(output[::-1])
+def addr(pubkey):
+   return bitcoin.pubkey_to_address(pubkey)
 
-def wif(secret_exponent):
-    var80 = "80"+secret_exponent
-    var = hashlib.sha256(binascii.unhexlify(hashlib.sha256(binascii.unhexlify(var80)).hexdigest())).hexdigest()
-    return str(base58.b58encode(binascii.unhexlify(str(var80) + str(var[0:8]))), 'utf-8')
+def addrc(pubkeyc):
+   return bitcoin.pubkey_to_address(pubkeyc)   
+   
 
-def database(address):
+def database(private_key, address, addressc, database):
     with open("data-base", "r") as m:
         add = m.read().split()
         for ad in add:
             continue
-        if address in add:
-            data = open("Win.txt","a")
-            data.write("found " + str(sect)+"\n" +str(address)+"\n"+str(WIF)+"\n"+"\n")
-            data.close()
+        if address in add or addressc in add:
+
+                data = open("Win.txt","a")
+                data.write('Private : '+str(bitcoin.encode_privkey(private_key,'hex'))+'\n'+
+                           'Address : '+str(address)+'\n'+'cAddress: '+str(addressc) +'\n\n')
+                data.close()
 
 
-def main():
+def bitbrute(iterator):
     while True:
-        secret_exponent = secret()
-        public_key = pubkey(secret_exponent)
+        private_key = generate_private_key()
+        public_key = pubkey(private_key)
+        public_keyc = pubkeyc(private_key)
         address = addr(public_key)
-        WIF = wif(secret_exponent)
-        data_base = database(address)
-        multi = (secret_exponent, public_key, address, WIF, data_base)
+        addressc = addrc(public_keyc) 
+        data_base = database(private_key, address, addressc, database)
+        print(str(address)+" "+str(addressc))
+        #multi = (secret_exponent, public_key, address, WIF, data_base)
         event, values = window.Read(timeout=10)     # read with a timeout of 10 ms
         if event in (None, 'Exit'):
             break
-        # Output the "uptime" statistic to a text field in the window
+         #Output the "uptime" statistic to a text field in the window
         window.Element('_DATE_').Update(str(datetime.datetime.now()-start_time))
         window.Element('address').Update(str(address))
-        window.Element('publickey').Update(str(public_key))
-        window.Element('privatekey').Update(str(secret_exponent))
-        window.Element('wif').Update(str(WIF))
-        window.Element('found').Update(str(data_base))
+        window.Element('addressc').Update(str(addressc))        
+        window.Element('private_key').Update(str(bitcoin.encode_privkey(private_key,'hex')))
     # Exiting the program
-    window.Close()    # be sure and close the window before trying to exit the program
-    print('Completed shutdown')
-main()
+if __name__ == '__main__':
+    try:
+        pool = ThreadPool(processes = multiprocessing.cpu_count()*2)
+        pool.map(bitbrute, range(0, 3)) #<----- change 10 to 5 if computer get slowly
+    except:
+        pool.close()
+        exit()
 
 
